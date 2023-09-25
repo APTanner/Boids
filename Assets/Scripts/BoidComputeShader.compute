@@ -1,0 +1,107 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+static const int threadGroupSize = 1024; //nvidia hardware organized in groups of 32 threads 
+
+struct BoidData {
+    float3 pos;
+    float3 heading;
+
+    float distToCenter;
+    float constraintMultiplier;
+
+    float3 separationHeading;
+    float3 avgNeighborHeading;
+    float3 avgNeighborPos;
+    float3 fear;
+    int numNeighbors;
+
+    int isBaitBalling;
+    float3 circlePos;
+};
+
+RWStructuredBuffer<BoidData> boidDatas;
+int dataLength;
+float tankRadius;
+float avgSpeed;
+float viewRange;
+float avoidRange;
+bool isTerrorSphere;
+float terrorSphereDiameter;
+float3 terrorSpherePos;
+float3 baitBallPos;
+
+
+[numthreads(threadGroupSize,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    //handle staying inside the tank
+    
+    float distToCenter = sqrt((boidDatas[id.x].pos.x * boidDatas[id.x].pos.x) + (boidDatas[id.x].pos.y * boidDatas[id.x].pos.y));
+    boidDatas[id.x].distToCenter = distToCenter;
+
+    if (distToCenter > tankRadius - 1) {
+        boidDatas[id.x].constraintMultiplier = 10;
+    }
+    else {
+        float3 offsetToCenterNormalized = (boidDatas[id.x].pos - float3(0, 0, 0)) / distToCenter;
+        float dot = boidDatas[id.x].heading.x * offsetToCenterNormalized.x + boidDatas[id.x].heading.y * offsetToCenterNormalized.y;
+        boidDatas[id.x].constraintMultiplier = dot + 1;
+    }
+
+    //handle running away from the sphere
+
+    if (true) {
+        float3 fearOffsetVector = terrorSpherePos - boidDatas[id.x].pos;
+        float fearDistSqrd = (fearOffsetVector.x * fearOffsetVector.x) + (fearOffsetVector.y * fearOffsetVector.y) + (fearOffsetVector.z * fearOffsetVector.z);
+
+        if (fearDistSqrd < (viewRange * viewRange) + (terrorSphereDiameter * terrorSphereDiameter / 4)) {
+            boidDatas[id.x].fear = -8*fearOffsetVector / fearDistSqrd;
+        }
+    }
+
+    //handle boids interacting
+
+    for (int tBoidIndex = 0; tBoidIndex < dataLength; tBoidIndex++) {
+        if (id.x != tBoidIndex) {
+
+            BoidData tBoid = boidDatas[tBoidIndex];
+            float3 offsetVector = tBoid.pos - boidDatas[id.x].pos;
+            float distSqrd = (offsetVector.x * offsetVector.x) + (offsetVector.y * offsetVector.y) + (offsetVector.z * offsetVector.z);
+
+            if (distSqrd < viewRange * viewRange) {
+
+                boidDatas[id.x].avgNeighborHeading += tBoid.heading;
+                boidDatas[id.x].avgNeighborPos += tBoid.pos;
+                boidDatas[id.x].numNeighbors += 1;
+
+                if (distSqrd < avoidRange * avoidRange)
+                {
+                    boidDatas[id.x].separationHeading += -offsetVector / distSqrd;
+                }
+            }
+        }
+    }
+
+    //handle circling
+
+    if (boidDatas[id.x].isBaitBalling == 1) {
+        float3 baitBallOffset = baitBallPos - boidDatas[id.x].pos;
+        float hDist = sqrt((baitBallOffset.x * baitBallOffset.x) + (baitBallOffset.y * baitBallOffset.y));
+
+        float moveAngle = 0;
+        //moveAngle += asin(avgSpeed / 2 / hDist);
+        //this is a test
+        moveAngle = 1.5708f;
+
+        float c = cos(moveAngle);
+        float s = sin(moveAngle);
+
+        float3 circlePos = float3(
+            -baitBallOffset.x * c - (-baitBallOffset.y) * s + baitBallPos.x,
+            -baitBallOffset.x * s + (-baitBallOffset.y) * c + baitBallPos.y,
+            boidDatas[id.x].pos.z - baitBallPos.z
+            );
+        //                    create a vector halfway to the middle then add it to our pos
+        boidDatas[id.x].circlePos = .5 * (baitBallPos - circlePos) + circlePos;
+    }
+}
