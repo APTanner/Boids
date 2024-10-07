@@ -12,13 +12,6 @@ Built to play around with vector maths and simulations / emergent behavior
 * Running away from position
 * Circling around single position (bait ball)
 
-## Usage
-**Just a toy** 
-
-There is no build system or plans to make one
-
-All options are changed through the Unity inspector. There is no in-game UI
-
 ## Design
 * Not the most efficient
     * Reallocates memory every fixed update
